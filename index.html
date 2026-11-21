@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#16463a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RunLoop">
+<title>RunLoop</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#eef3f1;--card:#fff;--ink:#12302a;--mute:#5d7770;--pine:#16463a;--line:#d3dfdb;--c0:#2456d6;--c1:#c2185b;--c2:#d98200;--warn:#b3261e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+#map{flex:0 0 40vh;min-height:220px;background:#cfdad6}
+main{flex:1;overflow-y:auto;padding:14px 14px 90px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:1000}
+nav button{flex:1;border:0;background:none;padding:12px 0 10px;font-size:13px;color:var(--mute);font-weight:600}
+nav button.on{color:var(--pine);box-shadow:inset 0 3px 0 var(--pine)}
+.tab{display:none}.tab.on{display:block}
+h2{margin:0 0 10px;font-size:18px}
+.seg{display:flex;gap:8px;margin-bottom:12px}
+.seg button{flex:1;padding:14px 0;border-radius:12px;border:2px solid var(--line);background:var(--card);font-size:20px;font-weight:800;color:var(--ink)}
+.seg button.on{background:var(--pine);border-color:var(--pine);color:#fff}
+.btn{width:100%;padding:15px;border-radius:12px;border:0;background:var(--pine);color:#fff;font-size:17px;font-weight:700}
+.btn.alt{background:var(--card);color:var(--pine);border:2px solid var(--pine)}
+.btn.stop{background:var(--warn)}
+.btn:disabled{opacity:.5}
+.card{background:var(--card);border:2px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}
+.card.on{border-color:var(--pine)}
+.loop{display:flex;gap:12px;align-items:center}
+.dot{width:14px;height:44px;border-radius:7px;flex:none}
+.loop b{font-size:20px}
+.meta{font-size:13px;color:var(--mute);margin-top:2px}
+.muted{color:var(--mute);font-size:14px}
+.row{display:flex;gap:8px;margin-top:10px}
+.big{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.big div{background:var(--card);border:2px solid var(--line);border-radius:12px;padding:10px}
+.big span{display:block;font-size:12px;color:var(--mute)}
+.big strong{font-size:38px;font-variant-numeric:tabular-nums;line-height:1.1}
+#instr{background:var(--pine);color:#fff;border-radius:12px;padding:14px;font-size:20px;font-weight:700;margin-bottom:10px}
+label.chk{display:flex;align-items:center;gap:8px;font-size:15px;margin:8px 0}
+input[type=text],input[type=number],select{font-size:16px;padding:10px;border-radius:10px;border:2px solid var(--line);background:#fff;color:var(--ink);width:100%}
+.bars{display:flex;align-items:flex-end;gap:6px;height:90px;margin-top:8px}
+.bars div{flex:1;background:var(--pine);border-radius:4px 4px 0 0;min-height:2px;position:relative}
+.bars small{position:absolute;bottom:-18px;left:0;right:0;text-align:center;font-size:10px;color:var(--mute)}
+.err{color:var(--warn);font-size:14px;margin-top:8px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<main>
+  <!-- PARCOURS -->
+  <section class="tab on" id="t-routes">
+    <h2>Boucles autour de toi</h2>
+    <div class="seg" id="dist">
+      <button data-d="5">5 km</button><button data-d="10" class="on">10 km</button><button data-d="15">15 km</button>
+    </div>
+    <button class="btn" id="gen">Trouver 3 boucles</button>
+    <div id="status" class="muted" style="margin-top:8px"></div>
+    <div id="loops"></div>
+    <div class="row"><button class="btn" id="go" disabled>Démarrer la course</button></div>
+  </section>
+
+  <!-- COURSE -->
+  <section class="tab" id="t-run">
+    <div id="instr">Choisis une boucle dans l'onglet Parcours.</div>
+    <div class="big">
+      <div><span>Distance (km)</span><strong id="r-d">0.00</strong></div>
+      <div><span>Temps</span><strong id="r-t">0:00</strong></div>
+      <div><span>Allure (min/km)</span><strong id="r-p">--</strong></div>
+      <div><span>Reste (km)</span><strong id="r-l">--</strong></div>
+    </div>
+    <button class="btn stop" id="stop" style="display:none">Terminer et enregistrer</button>
+    <label class="chk"><input type="checkbox" id="voice" checked> Guidage vocal et coaching</label>
+    <div class="muted">Allure cible (min/km)</div>
+    <select id="target"></select>
+    <div class="muted" style="margin-top:10px">Garde l'écran allumé et l'application ouverte pendant la course.</div>
+  </section>
+
+  <!-- LIEUX -->
+  <section class="tab" id="t-places">
+    <h2>Où faire du sport</h2>
+    <select id="pf">
+      <option value="all">Tout</option>
+      <option value="track">Pistes d'athlétisme</option>
+      <option value="park">Parcs</option>
+      <option value="fit">Agrès et salles de sport</option>
+      <option value="pitch">Terrains</option>
+    </select>
+    <button class="btn alt" id="pl-go" style="margin-top:10px">Chercher dans un rayon de 3 km</button>
+    <div id="pl-status" class="muted" style="margin-top:8px"></div>
+    <div id="pl-list"></div>
+  </section>
+
+  <!-- HISTORIQUE -->
+  <section class="tab" id="t-hist">
+    <h2>Progression</h2>
+    <div class="big" id="totals"></div>
+    <div class="card"><b>Kilomètres par semaine</b><div class="bars" id="bars"></div><div style="height:18px"></div></div>
+    <div class="card" id="coach"></div>
+    <div id="hist"></div>
+    <button class="btn alt" id="clear" style="margin-top:14px">Effacer l'historique</button>
+  </section>
+</main>
+<nav>
+  <button data-t="routes" class="on">Parcours</button>
+  <button data-t="run">Course</button>
+  <button data-t="places">Lieux</button>
+  <button data-t="hist">Historique</button>
+</nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const COLORS=['#2456d6','#c2185b','#d98200'];
+const OSRM='https://routing.openstreetmap.de/routed-foot/route/v1/foot/';
+let pos=null, distKm=10, loops=[], sel=null, run=null, placesLayer=L.layerGroup(), routeLayer=L.layerGroup(), me=null;
+
+/* Manifest PWA */
+try{
+  const m={name:"RunLoop",short_name:"RunLoop",start_url:".",display:"standalone",background_color:"#eef3f1",theme_color:"#16463a",
+   icons:[{src:"data:image/svg+xml,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="#16463a"/><circle cx="50" cy="50" r="26" fill="none" stroke="#fff" stroke-width="9"/></svg>'),sizes:"512x512",type:"image/svg+xml"}]};
+  const l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(new Blob([JSON.stringify(m)],{type:'application/manifest+json'}));document.head.appendChild(l);
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+}catch(e){}
+
+/* Carte */
+const map=L.map('map',{zoomControl:false}).setView([44.78,-0.57],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+routeLayer.addTo(map);placesLayer.addTo(map);
+
+/* Utilitaires */
+const rad=x=>x*Math.PI/180, deg=x=>x*180/Math.PI;
+function dest(lat,lon,brg,m){const R=6371000,b=rad(brg),d=m/R,p1=rad(lat),l1=rad(lon);
+  const p2=Math.asin(Math.sin(p1)*Math.cos(d)+Math.cos(p1)*Math.sin(d)*Math.cos(b));
+  const l2=l1+Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(p1),Math.cos(d)-Math.sin(p1)*Math.sin(p2));
+  return [deg(p2),deg(l2)];}
+function hav(a,b){const R=6371000,dp=rad(b[0]-a[0]),dl=rad(b[1]-a[1]);
+  const x=Math.sin(dp/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dl/2)**2;return 2*R*Math.asin(Math.sqrt(x));}
+const fmtT=s=>{s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),c=s%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(c).padStart(2,'0');};
+const fmtP=s=>(!isFinite(s)||s<=0||s>1800)?'--':Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0');
+function loadH(){try{return JSON.parse(localStorage.getItem('runloop_h')||'[]')}catch(e){return[]}}
+function saveH(h){try{localStorage.setItem('runloop_h',JSON.stringify(h))}catch(e){}}
+
+/* Navigation onglets */
+$$('nav button').forEach(b=>b.onclick=()=>{ $$('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='t-'+b.dataset.t));
+  if(b.dataset.t==='hist')renderHist(); setTimeout(()=>map.invalidateSize(),50);});
+$$('#dist button').forEach(b=>b.onclick=()=>{distKm=+b.dataset.d;$$('#dist button').forEach(x=>x.classList.toggle('on',x===b));});
+
+/* Allure cible */
+for(let s=240;s<=480;s+=15){const o=document.createElement('option');o.value=s;o.textContent=fmtP(s);if(s===360)o.selected=true;$('#target').appendChild(o);}
+
+/* Position */
+function locate(){return new Promise((res,rej)=>{
+  if(!navigator.geolocation)return rej(new Error("GPS indisponible sur cet appareil."));
+  navigator.geolocation.getCurrentPosition(p=>{pos=[p.coords.latitude,p.coords.longitude];
+    map.setView(pos,14); if(me)me.setLatLng(pos); else me=L.circleMarker(pos,{radius:8,color:'#fff',weight:3,fillColor:'#2456d6',fillOpacity:1}).addTo(map); res(pos);},
+   e=>rej(new Error("Position refusée. Autorise la localisation pour ce site dans les réglages.")),{enableHighAccuracy:true,timeout:15000});});}
+
+/* Routage */
+async function osrm(wps){
+  const u=OSRM+wps.map(p=>p[1].toFixed(5)+','+p[0].toFixed(5)).join(';')+'?overview=full&geometries=geojson&steps=true';
+  const r=await fetch(u); if(!r.ok)throw new Error('Service de routage indisponible ('+r.status+')');
+  const j=await r.json(); if(j.code!=='Ok')throw new Error('Aucun itinéraire trouvé ici.'); return j.routes[0];}
+function build(brg,L_m,sgn){const R=L_m/1.3/(2*Math.PI), C=dest(pos[0],pos[1],brg,R), w=[pos];
+  for(let k=1;k<=4;k++)w.push(dest(C[0],C[1],brg+180+sgn*72*k,R)); w.push(pos); return w;}
+async function oneLoop(brg,sgn){
+  const target=distKm*1000; let scale=1,r=null;
+  for(let i=0;i<3;i++){ r=await osrm(build(brg,target*scale,sgn));
+    if(Math.abs(r.distance-target)/target<0.08)break; scale*=target/r.distance; }
+  return r;}
+const PATHRE=/sentier|chemin|all[ée]e|piste|parc|jardin|voie verte|promenade|berge|quai|coul[ée]e|path|trail|greenway|towpath|cycleway/i;
+function pathShare(r){let tot=0,p=0;r.legs.forEach(l=>l.steps.forEach(s=>{tot+=s.distance;if(!s.name||PATHRE.test(s.name))p+=s.distance;}));return tot?p/tot:0;}
+
+/* Dénivelé */
+async function elevation(coords){
+  const n=Math.min(100,coords.length), idx=[];for(let i=0;i<n;i++)idx.push(Math.round(i*(coords.length-1)/(n-1)));
+  const pts=idx.map(i=>coords[i]);
+  const u='https://api.open-meteo.com/v1/elevation?latitude='+pts.map(p=>p[1].toFixed(4)).join(',')+'&longitude='+pts.map(p=>p[0].toFixed(4)).join(',');
+  const j=await (await fetch(u)).json(); const e=j.elevation; if(!e)throw 0;
+  let up=0,dn=0,ref=e[0];
+  for(let i=1;i<e.length;i++){const d=e[i]-ref; if(d>=3){up+=d;ref=e[i];} else if(d<=-3){dn-=d;ref=e[i];}}
+  return {up:Math.round(up),dn:Math.round(dn)};}
+
+/* Génération des 3 boucles */
+$('#gen').onclick=async()=>{
+  const st=$('#status'); st.className='muted'; $('#loops').innerHTML=''; $('#go').disabled=true; sel=null; routeLayer.clearLayers();
+  $('#gen').disabled=true;
+  try{
+    st.textContent='Localisation…'; await locate();
+    st.textContent='Calcul des boucles…';
+    const base=Math.random()*360;
+    const cands=await Promise.allSettled([0,1,2,3].map(i=>oneLoop(base+i*90,i%2?-1:1)));
+    let ok=cands.filter(c=>c.status==='fulfilled').map(c=>c.value);
+    if(!ok.length)throw new Error(cands[0].reason?.message||'Échec du calcul.');
+    ok.forEach(r=>r.ps=pathShare(r)); ok.sort((a,b)=>b.ps-a.ps); loops=ok.slice(0,3);
+    st.textContent='Calcul du dénivelé…';
+    await Promise.all(loops.map(async r=>{try{r.el=await elevation(r.geometry.coordinates)}catch(e){r.el=null}}));
+    st.textContent=''; renderLoops(); choose(0);
+  }catch(e){st.className='err';st.textContent=e.message||'Erreur.';}
+  $('#gen').disabled=false;};
+function renderLoops(){
+  $('#loops').innerHTML=loops.map((r,i)=>{const t=r.distance/1000*(+$('#target').value);
+    return `<div class="card loop" data-i="${i}"><div class="dot" style="background:${COLORS[i]}"></div><div style="flex:1">
+    <b>${(r.distance/1000).toFixed(1)} km</b><div class="meta">≈ ${fmtT(t)} à ${fmtP(+$('#target').value)} /km</div>
+    <div class="meta">${r.el?`▲ ${r.el.up} m  ▼ ${r.el.dn} m`:'Dénivelé indisponible'} · chemins/parcs ≈ ${Math.round(r.ps*100)} %</div></div></div>`}).join('');
+  $$('#loops .card').forEach(c=>c.onclick=()=>choose(+c.dataset.i));}
+function choose(i){sel=i; $$('#loops .card').forEach((c,k)=>c.classList.toggle('on',k===i));
+  routeLayer.clearLayers(); let bounds=null;
+  loops.forEach((r,k)=>{const ll=r.geometry.coordinates.map(c=>[c[1],c[0]]);
+    const pl=L.polyline(ll,{color:COLORS[k],weight:k===i?6:3,opacity:k===i?0.95:0.4}).addTo(routeLayer); if(k===i){pl.bringToFront();bounds=pl.getBounds();}});
+  L.circleMarker(pos,{radius:7,color:'#fff',weight:3,fillColor:'#16463a',fillOpacity:1}).addTo(routeLayer);
+  if(bounds)map.fitBounds(bounds,{padding:[20,20]}); $('#go').disabled=false;}
+
+/* Voix */
+function say(t){ if(!$('#voice').checked||!('speechSynthesis' in window))return;
+  const u=new SpeechSynthesisUtterance(t);u.lang='fr-FR';u.rate=1.05;speechSynthesis.speak(u);}
+const MOD={left:'à gauche','slight left':'légèrement à gauche','sharp left':'franchement à gauche',right:'à droite','slight right':'légèrement à droite','sharp right':'franchement à droite',uturn:'demi-tour',straight:'tout droit'};
+function stepText(s,last){const m=s.maneuver,mod=MOD[m.modifier]||'';
+  if(m.type==='arrive')return last?'Vous êtes arrivé':null;
+  if(m.type==='depart')return null;
+  if(m.modifier==='uturn')return 'Faites demi-tour';
+  if(['continue'].includes(m.type)&&(!m.modifier||m.modifier==='straight'))return null;
+  if(m.type==='new name'&&(!m.modifier||m.modifier==='straight'))return null;
+  if(m.type==='roundabout'||m.type==='rotary')return 'Au rond-point, prenez la sortie '+(m.exit||'');
+  if(mod&&m.modifier!=='straight')return 'Tournez '+mod+(s.name?', sur '+s.name:'');
+  return null;}
+function buildSteps(r){const out=[];const legs=r.legs;
+  legs.forEach((l,li)=>l.steps.forEach((s,si)=>{const last=(li===legs.length-1&&si===l.steps.length-1);
+    const t=stepText(s,last); if(t)out.push({loc:[s.maneuver.location[1],s.maneuver.location[0]],text:t,said:false});}));
+  return out;}
+
+/* Course */
+$('#go').onclick=startRun;
+async function startRun(){
+  if(sel==null)return; const r=loops[sel];
+  run={r,coords:r.geometry.coordinates.map(c=>[c[1],c[0]]),steps:buildSteps(r),nextStep:0,dist:0,t0:Date.now(),last:null,pts:[],kmDone:0,lastCoach:0,lastOff:0,half:false,track:[]};
+  $$('nav button')[1].click(); $('#stop').style.display='block'; $('#go').disabled=true;
+  try{run.wake=await navigator.wakeLock?.request('screen');}catch(e){}
+  if('speechSynthesis' in window){speechSynthesis.cancel();}
+  say('C\'est parti. Objectif '+(r.distance/1000).toFixed(1).replace('.',',')+' kilomètres.');
+  $('#instr').textContent='Suis la ligne sur la carte.';
+  run.timer=setInterval(tick,1000);
+  run.wid=navigator.geolocation.watchPosition(onPos,e=>{$('#instr').textContent='Signal GPS perdu…';},{enableHighAccuracy:true,maximumAge:1000,timeout:20000});}
+function onPos(p){ if(!run)return; if(p.coords.accuracy>35)return;
+  const c=[p.coords.latitude,p.coords.longitude]; if(me)me.setLatLng(c); map.panTo(c,{animate:true});
+  const now=Date.now();
+  if(run.last){const d=hav(run.last,c); if(d>=4){run.dist+=d; run.last=c; run.pts.push([now,run.dist]); run.track.push(c);}}
+  else {run.last=c; run.pts.push([now,0]);}
+  // instructions
+  const st=run.steps[run.nextStep];
+  if(st){const d=hav(c,st.loc);
+    $('#instr').textContent=d<400?`Dans ${Math.round(d/10)*10} m : ${st.text}`:'Continue tout droit';
+    if(d<60&&!st.said){st.said=true;say(`Dans ${Math.max(10,Math.round(d/10)*10)} mètres, ${st.text.toLowerCase()}`);}
+    if(d<18&&st.said)run.nextStep++;}
+  // hors parcours
+  let md=1e9;for(let i=0;i<run.coords.length;i+=2){const d=hav(c,run.coords[i]);if(d<md)md=d;}
+  if(md>70&&now-run.lastOff>30000){run.lastOff=now;say('Vous vous écartez du parcours.');}
+  coach(now);}
+function paceNow(){const p=run.pts; if(p.length<2)return NaN; const e=p[p.length-1]; let i=p.length-1;
+  while(i>0&&e[1]-p[i][1]<250)i--; const dd=e[1]-p[i][1],dt=(e[0]-p[i][0])/1000; return dd>50?dt/(dd/1000):NaN;}
+function coach(now){
+  const km=Math.floor(run.dist/1000);
+  if(km>run.kmDone){run.kmDone=km; const el=(now-run.t0)/1000;
+    say(`${km} kilomètre${km>1?'s':''}. Temps ${fmtSpeech(el)}. Allure moyenne ${fmtSpeech(el/km)} par kilomètre.`);}
+  const total=run.r.distance;
+  if(!run.half&&run.dist>=total/2){run.half=true;say('Vous êtes à la moitié. Gardez un rythme régulier.');}
+  if(run.dist-run.lastCoach>=500&&run.dist>600){run.lastCoach=run.dist; const p=paceNow(),tg=+$('#target').value;
+    if(isFinite(p)){ if(p>tg*1.10)say('Vous êtes un peu lent, accélérez légèrement.'); else if(p<tg*0.90)say('Vous partez vite, ralentissez un peu pour tenir la distance.'); else say('Bon rythme, continuez.');}}
+  if(!run.fin&&total-run.dist<500&&run.dist>0){run.fin=true;say('Plus que 500 mètres. Finissez fort.');}}
+function fmtSpeech(s){s=Math.round(s);const m=Math.floor(s/60),c=s%60;return m+' minute'+(m>1?'s':'')+(c?' '+c+' secondes':'');}
+function tick(){ if(!run)return; const el=(Date.now()-run.t0)/1000;
+  $('#r-d').textContent=(run.dist/1000).toFixed(2); $('#r-t').textContent=fmtT(el);
+  const pn=paceNow(); $('#r-p').textContent=fmtP(isFinite(pn)?pn:(run.dist>100?el/(run.dist/1000):NaN));
+  $('#r-l').textContent=Math.max(0,(run.r.distance-run.dist)/1000).toFixed(2);}
+$('#stop').onclick=()=>{ if(!run)return; clearInterval(run.timer); navigator.geolocation.clearWatch(run.wid); try{run.wake?.release()}catch(e){}
+  const el=(Date.now()-run.t0)/1000, km=run.dist/1000;
+  if(km>0.2){const h=loadH();h.unshift({date:new Date().toISOString(),km:+km.toFixed(2),sec:Math.round(el),up:run.r.el?.up??null,dn:run.r.el?.dn??null});saveH(h);}
+  say(`Course terminée. ${km.toFixed(2).replace('.',',')} kilomètres en ${fmtSpeech(el)}.`);
+  run=null; $('#stop').style.display='none'; $('#go').disabled=false; $('#instr').textContent='Course enregistrée.'; $$('nav button')[3].click();};
+
+/* Lieux */
+$('#pl-go').onclick=async()=>{
+  const st=$('#pl-status'); st.className='muted'; st.textContent='Recherche…'; $('#pl-list').innerHTML=''; placesLayer.clearLayers();
+  try{ if(!pos)await locate();
+    const q=`[out:json][timeout:25];(nwr["leisure"~"track|fitness_station|sports_centre|fitness_centre|pitch|park"](around:3000,${pos[0]},${pos[1]}););out center 120;`;
+    const r=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:'data='+encodeURIComponent(q)});
+    const j=await r.json(); const f=$('#pf').value;
+    const kind=t=>({track:'track',park:'park',fitness_station:'fit',sports_centre:'fit',fitness_centre:'fit',pitch:'pitch'}[t.leisure]);
+    const lab={track:'Piste d\'athlétisme',park:'Parc',fit:'Agrès / salle de sport',pitch:'Terrain'};
+    let list=j.elements.map(e=>{const c=e.center||{lat:e.lat,lon:e.lon};const k=kind(e.tags);
+      return {name:e.tags.name||lab[k],k,lat:c.lat,lon:c.lon,sport:e.tags.sport,d:hav(pos,[c.lat,c.lon])};})
+      .filter(p=>p.lat&&(f==='all'||p.k===f)&&(p.k!=='pitch'||p.name!==lab.pitch||true)).sort((a,b)=>a.d-b.d).slice(0,40);
+    if(!list.length){st.textContent='Rien trouvé dans ce rayon.';return;}
+    st.textContent=list.length+' lieux trouvés';
+    list.forEach(p=>L.circleMarker([p.lat,p.lon],{radius:6,color:'#fff',weight:2,fillColor:'#16463a',fillOpacity:1}).bindPopup(p.name).addTo(placesLayer));
+    $('#pl-list').innerHTML=list.map((p,i)=>`<div class="card"><b>${p.name}</b><div class="meta">${lab[p.k]}${p.sport?' · '+p.sport.replace(/;/g,', '):''} · ${p.d<1000?Math.round(p.d)+' m':(p.d/1000).toFixed(1)+' km'}</div>
+      <div class="row"><button class="btn alt" data-z="${i}">Voir</button><a class="btn" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&travelmode=walking&destination=${p.lat},${p.lon}">Y aller</a></div></div>`).join('');
+    $$('#pl-list [data-z]').forEach(b=>b.onclick=()=>{const p=list[+b.dataset.z];map.setView([p.lat,p.lon],17);window.scrollTo(0,0);});
+  }catch(e){st.className='err';st.textContent=e.message||'Recherche impossible.';}};
+
+/* Historique et coaching */
+function weekKey(d){const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-((x.getDay()+6)%7));return x.getTime();}
+function renderHist(){
+  const h=loadH(); const km=h.reduce((a,b)=>a+b.km,0), sec=h.reduce((a,b)=>a+b.sec,0);
+  $('#totals').innerHTML=`<div><span>Courses</span><strong>${h.length}</strong></div><div><span>Kilomètres cumulés</span><strong>${km.toFixed(1)}</strong></div>
+   <div><span>Temps total</span><strong style="font-size:28px">${fmtT(sec)}</strong></div><div><span>Allure moyenne</span><strong>${km?fmtP(sec/km):'--'}</strong></div>`;
+  const wk={},now=weekKey(Date.now());h.forEach(r=>{const k=weekKey(r.date);wk[k]=(wk[k]||0)+r.km;});
+  const weeks=[];for(let i=7;i>=0;i--){const k=new Date(now);k.setDate(k.getDate()-7*i);weeks.push(k.getTime());}
+  const max=Math.max(1,...weeks.map(k=>wk[k]||0));
+  $('#bars').innerHTML=weeks.map(k=>{const v=wk[k]||0;return `<div style="height:${v/max*100}%" title="${v.toFixed(1)} km"><small>${new Date(k).getDate()}/${new Date(k).getMonth()+1}</small></div>`}).join('');
+  // coaching
+  const cur=wk[now]||0, prev=wk[weeks[weeks.length-2]]||0; let msg;
+  if(!h.length)msg='Fais ta première boucle pour obtenir des conseils personnalisés.';
+  else{const base=Math.max(cur,prev); const goal=(base*1.1).toFixed(1);
+    msg=`<b>Coaching</b><div class="meta" style="font-size:15px;color:var(--ink);margin-top:6px">Cette semaine : ${cur.toFixed(1)} km. Semaine précédente : ${prev.toFixed(1)} km.<br>Objectif conseillé : ${goal} km (environ +10 % par rapport à ta meilleure des deux dernières semaines).<br>${h.length>=3?'Alterne une sortie facile, une plus longue et une plus courte pour récupérer.':'Vise 3 sorties par semaine pour installer la régularité.'}</div>`;}
+  $('#coach').innerHTML=msg;
+  $('#hist').innerHTML=h.slice(0,30).map(r=>`<div class="card"><b>${r.km.toFixed(2)} km</b> · ${fmtT(r.sec)} · ${fmtP(r.sec/r.km)} /km
+   <div class="meta">${new Date(r.date).toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}${r.up!=null?` · ▲ ${r.up} m ▼ ${r.dn} m`:''}</div></div>`).join('');}
+$('#clear').onclick=()=>{if(confirm('Effacer tout l\'historique ?')){saveH([]);renderHist();}};
+$('#target').onchange=()=>{if(loops.length)renderLoops();$$('#loops .card').forEach((c,k)=>c.classList.toggle('on',k===sel));};
+renderHist();
+</script>
+</body>
+</html>
